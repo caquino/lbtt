@@ -1,0 +1,10 @@
+# Defaults for lbtt initscript
+# sourced by /etc/init.d/lbtt
+# installed at /etc/default/lbtt by the maintainer scripts
+
+#
+# This is a POSIX shell fragment
+#
+
+# Additional options that are passed to the Daemon.
+DAEMON_ARGS="-b 127.0.0.1 -p 8080 -s /usr/share/lbtt/lbtt.js"

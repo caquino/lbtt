@@ -1,0 +1,21 @@
+required:
+v8 javascript engine ( http://code.google.com/p/v8/ ) ** shipped
+libev IO layer ( http://software.schmorp.de/pkg/libev.html ) ** shipped
+mysql libraries ( http://www.mysql.com ) -> MAKE SURE mysql_config is in your path
+scons + python ( required to compile v8 )
+
+just run:
+cd src && make
+
+
+torrent urls
+http://host:8080/announce
+http://host:8080/scrape
+
+json urls
+http://host:8080/lbtt/status
+{"uptime": 123,"torrents": 46,"peers": 2457,"seeders": 27,"downloads": 15 }
+
+http://host:8080/lbtt/info?info_hash=(20bytes infohash, like scrape)
+{ "complete": 0,"downloaded": 0,"incomplete": 1 }
+

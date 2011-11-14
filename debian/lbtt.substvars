@@ -1,0 +1,2 @@
+shlibs:Depends=libc6 (>= 2.2.5), libev3 (>= 3.1), libgcc1 (>= 1:4.1.1), libmysqlclient16 (>= 5.1.21-1), libstdc++6 (>= 4.4.0), libv8-2.2.24
+misc:Depends=

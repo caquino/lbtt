@@ -1,0 +1,1815 @@
+Description: Upstream changes introduced in version 1.0-1
+ This patch has been created by dpkg-source during the package build.
+ Here's the last changelog entry, hopefully it gives details on why
+ those changes were made:
+ .
+ lbtt (1.0-1) unstable; urgency=low
+ .
+   * Initial release (Closes: #nnnn)  <nnnn is the bug number of your ITP>
+ .
+ The person named in the Author field signed this changelog entry.
+Author: Cassiano Aquino <cassianoaquino@me.com>
+
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Origin: <vendor|upstream|other>, <url of original patch>
+Bug: <url in upstream bugtracker>
+Bug-Debian: http://bugs.debian.org/<bugnumber>
+Bug-Ubuntu: https://launchpad.net/bugs/<bugnumber>
+Forwarded: <no|not-needed|url proving that it has been forwarded>
+Reviewed-By: <name and email of someone who approved the patch>
+Last-Update: <YYYY-MM-DD>
+
+--- /dev/null
++++ lbtt-1.0/acceptor.cpp
+@@ -0,0 +1,68 @@
++#include "acceptor.h"
++
++#include <fcntl.h>
++#include <sys/socket.h>
++#include <netinet/in.h>
++#include <arpa/inet.h>
++
++#include <iostream>
++using namespace std;
++
++int
++setnonblock(int fd) {
++    int flags;
++
++    flags = fcntl(fd, F_GETFL);
++    if (flags < 0)
++        return flags;
++    flags |= O_NONBLOCK;
++    if (fcntl(fd, F_SETFL, flags) < 0)
++        return -1;
++
++    return 0;
++}
++
++void Acceptor::setCallback(void(*cb)(int)) {
++    m_cb = cb;
++}
++
++void Acceptor::newClient(ev::io& iow, int revents) {
++    int client_fd;
++    struct sockaddr_in client_addr;
++    socklen_t client_len = sizeof (client_addr);
++    client_fd = accept(iow.fd, (struct sockaddr *) & client_addr, &client_len);
++    if (client_fd == -1) {
++        return;
++    }
++    setnonblock(client_fd);
++    m_cb(client_fd);
++}
++
++Acceptor::Acceptor(const char* ip, int port) {
++    int fd;
++    struct sockaddr_in listen_addr;
++    int reuseaddr_on = 1;
++    fd = socket(AF_INET, SOCK_STREAM, 0);
++    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_on,
++            sizeof (reuseaddr_on)) == -1)
++        exit(1);
++    memset(&listen_addr, 0, sizeof (listen_addr));
++    listen_addr.sin_family = AF_INET;
++    listen_addr.sin_addr.s_addr = inet_addr((char *)ip);
++    listen_addr.sin_port = htons(port);
++    if (bind(fd, (struct sockaddr *) & listen_addr,
++            sizeof (listen_addr)) < 0)
++        exit(1);
++    if (listen(fd, 50) < 0)
++        exit(1);
++    if (setnonblock(fd) < 0)
++        exit(1);
++
++    iow.set<Acceptor,&Acceptor::newClient>(this);
++    iow.set(loop);
++    iow.start(fd, ev::READ);
++}
++
++void Acceptor::operator ()(){
++        loop.loop();
++}
+--- /dev/null
++++ lbtt-1.0/acceptor.h
+@@ -0,0 +1,29 @@
++/* 
++ * File:   Acceptor.h
++ * Author: lfontes
++ *
++ * Created on September 4, 2009, 4:37 PM
++ */
++
++#ifndef _ACCEPTOR_H
++#define	_ACCEPTOR_H
++
++#include "tracker.h"
++#include <ev++.h>
++
++class Acceptor{
++public:
++    Acceptor(const char * ip,int port);
++    void setCallback(void (*cb)(int));
++    void operator()();
++    void stop(){ loop.unloop(ev::ALL);}
++private:
++        
++        void newClient(ev::io &,int);
++        ev::dynamic_loop loop; //our main loop
++        ev::io iow;
++        void (*m_cb)(int);
++};
++
++#endif	/* _ACCEPTOR_H */
++
+--- /dev/null
++++ lbtt-1.0/lbtt.js
+@@ -0,0 +1,45 @@
++
++print("loading lbtt...");
++/*
++mysql example
++my = mysqlQuery("SELECT NOW() as t1,NOW() as t2")
++print(my.t1 + " " my.t2)
++
++*/
++
++
++/*
++this function receives a request object + torrent + peer
++request.newTorrent = boolean ( if set, request.torrent will exist )
++request.newPeer = boolean ( if set, request.peer will exist )
++
++request properties = event,left,corrupt,downloaded,uploaded,numwant,port,ip,passkey,hexhash,peerid
++torrent properties = hexhash,complete,incomplete,download,lastseen
++peer properties = hexpeerid,ip,port,left,downloaded,uploaded,corrupt,passkey,lastseen
++*/
++function newRequest(request){
++if(request.newTorrent == false){
++	print(request.agent+" "+request.info_hash +" "+request.torrent.seeders+" seeders, "+request.torrent.leechers+" leechers "+request.torrent.hosts+" hosts")
++}else{
++	print("new Torrent " + request.info_hash)
++}
++
++/*
++string returned here will be presented as "failure msg"
++return "failure, you're too ugly"
++*/
++}
++
++function expirePeer(torrent,peer){
++	print("expire peer "+ torrent.info_hash +" "+torrent.seeders+" seeders, "+torrent.leechers+" leechers "+torrent.hosts+" hosts")
++}
++
++function expireTorrent(torrent){
++	print("expire torrent"+ torrent.info_hash +" "+torrent.seeders+" seeders, "+torrent.leechers+" leechers "+torrent.hosts+" hosts")
++}
++
++//this will run @ the start
++print("javascript interface initiated");
++/* connect mysql if needed
++print("MYSQL Connect? " + mysqlConnect("localhost","tb","tr4ck3r","bittorrent"));
++*/
+--- /dev/null
++++ lbtt-1.0/scoped_lock.h
+@@ -0,0 +1,31 @@
++/* 
++ * File:   scoped_lock.h
++ * Author: lfontes
++ *
++ * Created on September 4, 2009, 5:23 PM
++ */
++
++#ifndef _SCOPED_LOCK_H
++#define	_SCOPED_LOCK_H
++
++
++#include <pthread.h>
++
++class scoped_lock {
++    pthread_mutex_t *m;
++public:
++
++    explicit scoped_lock(pthread_mutex_t &m_) : m(&m_) {
++        pthread_mutex_lock(m)
++                ;
++    }
++
++    ~scoped_lock() {
++        pthread_mutex_unlock(m);
++    }
++};
++
++
++
++#endif	/* _SCOPED_LOCK_H */
++
+--- /dev/null
++++ lbtt-1.0/thread.h
+@@ -0,0 +1,38 @@
++/* 
++ * File:   thread.h
++ * Author: lfontes
++ *
++ * Created on September 4, 2009, 4:52 PM
++ */
++
++#ifndef _THREAD_H
++#define	_THREAD_H
++
++#include <pthread.h>
++#include <functional>
++using namespace std;
++
++
++
++template<class K>
++struct thread{
++        thread(K &x):r(x) { pthread_create(&tid,NULL,thread<K>::run,this);}
++        static void *run(void *x){
++            static_cast<thread<K> *>(x)->runme();
++            return NULL;
++        }
++        void *runme(){
++            //r.method();
++            r();
++            return NULL;
++        }
++        ~thread(){ pthread_join(tid,NULL); }
++        protected:
++        pthread_t tid;
++        K &r;
++};
++
++
++
++#endif	/* _THREAD_H */
++
+--- /dev/null
++++ lbtt-1.0/tracker.cpp
+@@ -0,0 +1,408 @@
++#include "tracker.h"
++#include "scoped_lock.h"
++#include <string>
++#include <iostream>
++#include <sstream>
++#include <map>
++#include <sys/time.h>
++#include <sys/socket.h>
++#include <netinet/in.h>
++#include <arpa/inet.h>
++
++#include <v8.h>
++
++using namespace std;
++using namespace v8;
++
++bool TorrentTracker::cleanup() {
++    scoped_lock lock(io_mutex);
++    HandleScope handle_scope;
++    Context::Scope context_scope(context);
++
++     struct timeval tv;
++    gettimeofday(&tv, NULL);
++
++
++    double now = (static_cast<double> (tv.tv_sec) * 1000) + (static_cast<double> (tv.tv_usec) / 1000);
++	
++    map<const char *, TorrentFile *>::iterator iterTor = torrents.begin();
++    while (iterTor != torrents.end()) {
++        TorrentFile *tor = iterTor->second;
++        map<const char *, TorrentPeer *>::iterator iterPeers = tor->peers.begin();
++        //check expired peers
++        while (iterPeers != tor->peers.end()) {
++            TorrentPeer *pee = iterPeers->second;
++            if ((pee->lastseen + expireTimeout) < now) {
++			Local<Object> torObj = torTemplate->NewInstance();
++			torObj->SetInternalField(0, External::New(tor));
++			Local<Object> peerObj = peerTemplate->NewInstance();
++			peerObj->SetInternalField(0,External::New(pee));
++			{
++        const int argc = 2;
++        Handle<Value> argv[argc] = {torObj,peerObj};
++        //run newRequest
++        Handle<Value> result = expirePeer->Call(context->Global(), argc, argv);
++		}
++			
++                removePeer(tor, pee);
++                iterPeers = tor->peers.begin();
++            } else {
++                iterPeers++;
++            }
++        }
++        //check if torrent is expired
++        if ((tor->lastseen + expireTimeout) < now && tor->peers.size() == 0) {
++		Local<Object> torObj = torTemplate->NewInstance();
++			torObj->SetInternalField(0, External::New(tor));
++						{
++        const int argc = 1;
++        Handle<Value> argv[argc] = {torObj};
++        //run newRequest
++        Handle<Value> result = expirePeer->Call(context->Global(), argc, argv);
++		}
++
++            removeTorrent(tor);
++            iterTor = torrents.begin();
++        } else {
++            iterTor++;
++        }
++
++    }
++    return true;
++}
++
++TorrentTracker::TorrentTracker(string &path) :
++hosts(0), downloads(0), seeders(0), interval(1800), expireTimeout(2000) {
++    pthread_mutex_init(&io_mutex, NULL);
++    startTime = time(NULL);
++    scoped_lock lock(io_mutex);
++
++    HandleScope handle_scope;
++
++
++    Handle<ObjectTemplate> funcs = makeFuncs();
++
++    global = Persistent<ObjectTemplate>::New(funcs);
++    Handle<Context> lcontext = Context::New(NULL, global);
++    context = Persistent<Context>::New(lcontext);
++    Context::Scope context_scope(context);
++
++    Handle<String> v8script = ReadFile(path.c_str());
++    Handle<Script> script = Script::Compile(v8script, String::New(path.c_str()));
++
++    if (script.IsEmpty()) {
++        cout << "error initializing script, aborting" << endl;
++        exit(99);
++    }
++    Handle<Value> result = script->Run();
++
++
++    reqTemplate = Persistent<ObjectTemplate>::New(makeRequestTemplate());
++    torTemplate = Persistent<ObjectTemplate>::New(makeTorrentTemplate());
++    peerTemplate = Persistent<ObjectTemplate>::New(makePeerTemplate());
++
++    Handle<String> process_name = String::New("newRequest");
++    Handle<Value> process_val = context->Global()->Get(process_name);
++
++    if (process_val->IsFunction()) {
++        Handle<Function> hfun = Handle<Function>::Cast(process_val);
++        newRequest = Persistent<Function>::New(hfun);
++    }
++    process_name = String::New("expirePeer");
++    process_val = context->Global()->Get(process_name);
++
++    if (process_val->IsFunction()) {
++        Handle<Function> hfun = Handle<Function>::Cast(process_val);
++        expirePeer = Persistent<Function>::New(hfun);
++    }
++    process_name = String::New("expireTorrent");
++    process_val = context->Global()->Get(process_name);
++
++    if (process_val->IsFunction()) {
++        Handle<Function> hfun = Handle<Function>::Cast(process_val);
++        expireTorrent = Persistent<Function>::New(hfun);
++    }
++	
++
++	process_name = String::New("httpRequest");
++    process_val = context->Global()->Get(process_name);
++
++    if (process_val->IsFunction()) {
++        Handle<Function> hfun = Handle<Function>::Cast(process_val);
++        dynamicRequest = Persistent<Function>::New(hfun);
++    }
++	
++}
++
++void TorrentTracker::removeTorrent(TorrentFile *tor) {
++    torrents.erase(tor->id);
++    delete tor;
++}
++
++void TorrentTracker::removePeer(TorrentFile *tor, TorrentPeer *pee) {
++    tor->peers.erase(pee->id);
++
++    vector<TorrentPeer *>::iterator vit = tor->peerCache.begin();
++    for (; vit != tor->peerCache.end(); vit++) {
++        TorrentPeer *p = *vit;
++        if (memcmp(p->id, pee->id, 20) == 0) {
++            tor->peerCache.erase(vit);
++            break;
++        }
++    }
++
++    if (pee->state == TorrentPeer::SEED) {
++        if (tor->seeders > 0) tor->seeders--;
++        if (seeders > 0) seeders--;
++    }
++    if (tor->hosts > 0) tor->hosts--;
++    if (hosts > 0) hosts--;
++    delete pee;
++}
++
++void TorrentTracker::setError(stringstream &output, const char *x) {
++    output << "d14:failure reason" << static_cast<int> (strlen(x)) << ":" << x << "e";
++}
++
++void TorrentTracker::peerList(TorrentRequest &req, TorrentFile *tor, stringstream &output,bool stop) {
++
++   output << "d8:completei" << tor->seeders << "e10:incompletei" << (tor->hosts - tor->seeders) <<
++            "e8:intervali" << interval << "e12:min intervali" << (interval / 2) << "e5:peers";
++
++   if(stop){
++	output << "0:e";
++	return;
++   }
++
++
++    vector<TorrentPeer *>::iterator pees;
++    if (req.numwant > tor->peerCache.size()) {
++        pees = tor->peerCache.begin();
++    } else {
++        int rstart = 0;
++        pees = tor->peerCache.begin();
++        rstart = (int) rand() % (tor->peerCache.size() - (req.numwant / 2));
++        pees += rstart;
++    }
++
++ 
++
++    if (req.compact) {
++        string walker;
++        for (unsigned int i = 0; i < req.numwant && pees != tor->peerCache.end(); i++, pees++) {
++            TorrentPeer *pi = *pees;
++            walker += (char) ((pi->ip >> 24)&255);
++            walker += (char) ((pi->ip >> 16)&255);
++            walker += (char) ((pi->ip >> 8)&255);
++            walker += (char) (pi->ip & 255);
++            walker += (char) ((pi->port & 0xff00) >> 8);
++            walker += (char) ((pi->port & 0xff));
++        }
++        output << walker.size() << ":" << walker << "e";
++    } else {
++        //not compact
++        stringstream walker;
++        char *ip;
++        walker << 'l';
++        for (unsigned int i = 0; i < req.numwant && pees != tor->peerCache.end(); i++, pees++) {
++            TorrentPeer *pi = *pees;
++            walker << "d2:ip";
++            ip = inet_ntoa(*(struct in_addr *) & pi->ip);
++            walker << strlen(ip);
++            walker << ':';
++            walker << ip;
++            walker << "4:porti";
++            walker << pi->port;
++            walker << "ee";
++        }
++        walker << "ee";
++        output << walker;
++    }
++}
++
++bool TorrentTracker::announce(TorrentRequest& req, stringstream& output) {
++    scoped_lock lock(io_mutex);
++    HandleScope handle_scope;
++    Context::Scope context_scope(context);
++    bool newPeer = true;
++	bool newTorrent = true;
++    TorrentFile *tor = NULL;
++    TorrentPeer *peer = NULL;
++    map<const char *, TorrentFile *>::iterator iter = torrents.find(req.torrent);
++
++
++    Local<Object> reqObj = reqTemplate->NewInstance();
++    reqObj->SetInternalField(0, External::New(&req));
++
++
++    if (iter != torrents.end()) {
++        tor = iter->second;
++		newTorrent = false;
++        reqObj->Set(String::New("newTorrent"), Boolean::New(false));
++        Local<Object> torObj = torTemplate->NewInstance();
++        torObj->SetInternalField(0, External::New(tor));
++        reqObj->Set(String::New("torrent"), torObj);
++
++        map<const char *, TorrentPeer *>::iterator iterPeer = tor->peers.find(req.peerid);
++        if (iterPeer != tor->peers.end()) {
++            //found peer
++			newPeer = false;
++            peer = iterPeer->second;
++            reqObj->Set(String::New("newPeer"), Boolean::New(false));
++            Local<Object> peerObj = peerTemplate->NewInstance();
++            peerObj->SetInternalField(0, External::New(peer));
++            reqObj->Set(String::New("peer"), peerObj);
++        } else {
++            reqObj->Set(String::New("newPeer"), Boolean::New(true));
++        }
++
++    } else {
++        reqObj->Set(String::New("newTorrent"), Boolean::New(true));
++        reqObj->Set(String::New("newPeer"), Boolean::New(true));
++    }
++
++    // run function
++    {
++  TryCatch trycatch;
++        const int argc = 1;
++        Handle<Value> argv[argc] = {reqObj};
++        //run newRequest
++        Handle<Value> result = newRequest->Call(context->Global(), argc, argv);
++	if(result.IsEmpty()){
++		Handle<Value> exception = trycatch.Exception();
++		String::AsciiValue exception_str(exception);
++		cout << "Exception:" << *exception_str << endl;
++		setError(output,"exception");
++		return false;
++	}else{
++        if (!result->IsUndefined()) {
++            v8::String::AsciiValue str(result);
++            setError(output, *str);
++            return false;
++        }
++	}
++
++    }
++
++
++    if (tor == NULL) {
++        tor = new TorrentFile(req.torrent);
++        torrents.insert(make_pair(tor->id, tor));
++    }
++
++
++    if (peer == NULL) {
++        peer = new TorrentPeer(req.peerid);
++        peer->ip = req.ip;
++        peer->port = req.port;
++        tor->peers.insert(make_pair(peer->id, peer));
++        tor->peerCache.push_back(peer);
++        tor->hosts++;
++        hosts++;
++        if (req.left == 0) {
++            tor->seeders++;
++            seeders++;
++			peer->state = TorrentPeer::SEED;
++        }
++    }
++    peer->left = req.left;
++    peer->corrupt = req.corrupt;
++    peer->download = req.download;
++    peer->upload = req.upload;
++
++    struct timeval tv;
++    gettimeofday(&tv, NULL);
++
++
++    tor->lastseen = peer->lastseen = (static_cast<double> (tv.tv_sec) * 1000) + (static_cast<double> (tv.tv_usec) / 1000);
++
++
++    if (req.event == req.COMPLETE) {
++        if (peer->left == 0 && newPeer == false && peer->state == TorrentPeer::LEECH) { //add peer state to avoid people sending complete = complete
++		    tor->seeders++;
++			seeders++;
++            tor->downloads++;
++            downloads++;
++        }
++    peerList(req, tor, output,true);
++    } else if (req.event == req.STOP) {
++        removePeer(tor, peer);
++    peerList(req, tor, output,true);
++    }else{
++    peerList(req, tor, output,false);
++	
++	}
++
++
++    return true;
++}
++
++bool TorrentTracker::scrape(TorrentRequest& req, stringstream& output) {
++    scoped_lock lock(io_mutex);
++    TorrentFile *tor;
++
++    map<const char *, TorrentFile *>::iterator iter = torrents.find(req.torrent);
++
++    if (iter == torrents.end()) {
++        setError(output, "torrent not found");
++        return false;
++    }
++    tor = iter->second;
++
++    output << "d5:filesd20:";
++    output.write(req.torrent, 20);
++    output << "d8:completei" << tor->seeders << "e10:downloadedi" << tor->downloads <<
++            "e10:incompletei" << (tor->hosts - tor->seeders) << "eeee";
++
++    return true;
++}
++
++bool TorrentTracker::info(TorrentRequest& req, stringstream& output) {
++		scoped_lock lock( io_mutex );
++        TorrentFile *tor;
++        map<const char *,TorrentFile *>::iterator iter = torrents.find(req.torrent);
++        if(iter == torrents.end()){ output << "{\"error\": \"not found\"}" ; return false; }
++        tor = iter->second;
++        output << "{ " ;
++        output << "\"complete\": " << tor->seeders << "," ;
++        output << "\"downloaded\": " << tor->downloads << "," ;
++        output << "\"incomplete\": " << (tor->hosts - tor->seeders) << " }";
++
++    return true;
++}
++
++void TorrentTracker::status(stringstream& output) {
++    scoped_lock lock(io_mutex);
++    time_t now = time(NULL);
++    time_t delta = now - startTime;
++    output << "{ ";
++    output << "\"uptime\": " << delta << ",";
++    output << "\"torrents\": " << torrents.size() << ",";
++    output << "\"peers\": " << hosts << ",";
++    output << "\"seeders\": " << seeders << ",";
++    output << "\"downloads\": " << downloads << " }";
++}
++
++
++
++bool TorrentTracker::dynamic(TorrentRequest& req, stringstream& output) {
++		scoped_lock lock( io_mutex );
++        HandleScope handle_scope;
++		Context::Scope context_scope(context);
++    // run function
++    {
++		Local<String> reqObj = String::New(req.query.c_str(),req.query.size());
++        const int argc = 1;
++        Handle<Value> argv[argc] = {reqObj};
++        Handle<Value> result = dynamicRequest->Call(context->Global(), argc, argv);
++        if (!result->IsUndefined()) {
++            v8::String::AsciiValue str(result);
++            output << *str;
++            return true;
++        }
++
++    }
++
++	output << "The main reason Santa is so jolly is because he knows where all the bad girls live";
++    return false;
++}
+--- /dev/null
++++ lbtt-1.0/tracker.h
+@@ -0,0 +1,61 @@
++/* 
++ * File:   tracker.h
++ * Author: lfontes
++ *
++ * Created on September 4, 2009, 4:31 PM
++ */
++
++#ifndef _TRACKER_H
++#define	_TRACKER_H
++#include "trackertypes.h"
++#include <map>
++#include <pthread.h>
++#include <iostream>
++#include "v8funcs.h"
++#include <v8.h>
++
++using namespace std;
++using namespace v8;
++
++class TorrentTracker {
++public:
++    TorrentTracker(string &);
++    bool scrape(TorrentRequest &req, stringstream &output);
++    bool announce(TorrentRequest &req, stringstream &output);
++    void status(stringstream &output);
++    bool info(TorrentRequest &req, stringstream &output);
++	bool dynamic(TorrentRequest &req, stringstream &output);
++    bool cleanup();
++    int interval;
++    int expireTimeout;
++private:
++    void removePeer(TorrentFile *, TorrentPeer *);
++    void removeTorrent(TorrentFile *);
++
++    void peerList(TorrentRequest &req, TorrentFile *torrent, stringstream &output,bool stop);
++    void setError(stringstream &output, const char *msg);
++protected:
++    map<const char *, TorrentFile *, hashCmp> torrents;
++    pthread_mutex_t io_mutex;
++    unsigned long hosts;
++    unsigned long seeders;
++    unsigned long downloads;
++    time_t startTime;
++
++    //v8 specific
++    Handle<Context> context;
++    Persistent<ObjectTemplate> global;
++
++    Persistent<Function> newRequest;
++	Persistent<Function> dynamicRequest;
++    Persistent<Function> expirePeer;
++    Persistent<Function> expireTorrent;
++
++
++    Persistent<ObjectTemplate> reqTemplate;
++    Persistent<ObjectTemplate> torTemplate;
++    Persistent<ObjectTemplate> peerTemplate;
++};
++
++#endif	/* _TRACKER_H */
++
+--- /dev/null
++++ lbtt-1.0/trackertypes.h
+@@ -0,0 +1,94 @@
++/* 
++ * File:   request.h
++ * Author: lfontes
++ *
++ * Created on September 4, 2009, 4:00 PM
++ */
++
++#ifndef _REQUEST_H
++#define	_REQUEST_H
++#include <netinet/in.h>
++#include <map>
++#include <vector>
++#include <iostream>
++
++
++#include <unistd.h>
++#include <stdlib.h>
++#include <string.h>
++
++using namespace std;
++
++struct hashCmp {
++
++    bool operator()(const char *s1, const char *s2) const {
++        return memcmp(s1, s2, 20) < 0;
++    }
++};
++
++
++struct TorrentRequest {
++
++    enum Tevent {
++        UPDATE, COMPLETE, START, STOP
++    };
++    Tevent event;
++
++    unsigned long left;
++    unsigned long corrupt;
++    unsigned long download;
++    unsigned long upload;
++    bool compact;
++    char peerid[20];
++    char torrent[20];
++	string query;
++    
++    string useragent;
++    unsigned int port;
++    in_addr_t ip;
++    unsigned int numwant;
++    void printMe(){
++        cout << "req left " << left << " corrupt " << corrupt << " download " << download << " upload " << upload << " port "<< port <<endl;
++    }
++    TorrentRequest(char *q) :
++    left(0), corrupt(0), download(0), upload(0), compact(0), port(0), ip(0), numwant(30),useragent("none"),query(q) {
++        peerid[0] = torrent[0] = '\0'; 
++    }
++};
++
++struct TorrentPeer {
++    char id[20];
++    unsigned long left;
++    unsigned long corrupt;
++    unsigned long download;
++    unsigned long upload;
++    unsigned int port;
++    double lastseen;
++    in_addr_t ip;
++	
++ enum Pstate{
++ LEECH,SEED };
++   Pstate state;
++    TorrentPeer(char *s) :
++    left(0), corrupt(0), download(0), upload(0), port(0), ip(0),state(LEECH) {
++        memcpy(id, s, 20);
++    }
++};
++
++
++
++struct TorrentFile {
++    char id[20];
++    unsigned long hosts;
++    unsigned long seeders;
++    unsigned long downloads;
++    double lastseen;
++    map<const char *, TorrentPeer *,hashCmp> peers;
++    vector<TorrentPeer *> peerCache;
++    TorrentFile(char *s):
++    hosts(0),seeders(0),downloads(0),lastseen(0){
++        memcpy(id,s,20);
++    }
++};
++#endif	/* _REQUEST_H */
++
+--- /dev/null
++++ lbtt-1.0/v8funcs.cpp
+@@ -0,0 +1,491 @@
++#include "v8funcs.h"
++#include "trackertypes.h"
++#include <mysql.h>
++#include <iostream>
++#include <sys/time.h>
++#include <sys/socket.h>
++#include <netinet/in.h>
++#include <arpa/inet.h>
++#include <stdlib.h>
++
++using namespace std;
++using namespace v8;
++MYSQL mysql;
++
++
++static char hexconvtab[] = "0123456789abcdef";
++
++string _bin2hex(const char *istr) {
++    string m;
++    int j = 0;
++    char re[41];
++    for (int i = 0; i < 20; i++) {
++        char c = istr[i] & 0xff;
++        re[j++] = hexconvtab[ (c >> 4) & 15 ];
++        re[j++] = hexconvtab[c & 15];
++    }
++    re[j] = '\0';
++    m = re;
++    return m;
++}
++
++Handle<String> bin2hex(const char *istr) {
++    Handle<String> m = String::New(_bin2hex(istr).c_str());
++    return m;
++}
++
++Handle<Value> Print(const v8::Arguments& args) {
++    bool first = true;
++    for (int i = 0; i < args.Length(); i++) {
++        v8::HandleScope handle_scope;
++        if (first) {
++            first = false;
++        } else {
++            cout << " ";
++        }
++        v8::String::Utf8Value str(args[i]);
++        cout << *str;
++    }
++    cout << endl;
++    return v8::Undefined();
++}
++
++/* -- request -- */
++Handle<Value> req_getip(Local<String> property, const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    in_addr_t value = static_cast<TorrentRequest*> (ptr)->ip;
++    char *ip = inet_ntoa(*(struct in_addr *) & value);
++    return String::New(ip);
++};
++
++Handle<Value> req_getinfohash(Local<String> property,
++        const AccessorInfo &info) {
++
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    char *value = static_cast<TorrentRequest*> (ptr)->torrent;
++
++    return String::New(_bin2hex(value).c_str());
++}
++
++Handle<Value> req_getagent(Local<String> property,
++        const AccessorInfo &info) {
++
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    const char *value = static_cast<TorrentRequest*> (ptr)->useragent.c_str();
++
++    return String::New(value);
++}
++
++
++
++Handle<Value> req_getquery(Local<String> property,
++        const AccessorInfo &info) {
++
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    const char *value = static_cast<TorrentRequest*> (ptr)->query.c_str();
++
++    return String::New(value);
++}
++
++Handle<Value> req_getpeerid(Local<String> property,
++        const AccessorInfo &info) {
++
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    char *value = static_cast<TorrentRequest*> (ptr)->peerid;
++
++    return String::New(_bin2hex(value).c_str());
++}
++
++Handle<Value> req_getleft(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    unsigned long value = static_cast<TorrentRequest*> (ptr)->left;
++    return Integer::New(value);
++}
++
++Handle<Value> req_getdownload(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    unsigned long value = static_cast<TorrentRequest*> (ptr)->download;
++    return Integer::New(value);
++}
++
++Handle<Value> req_getupload(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    unsigned long value = static_cast<TorrentRequest*> (ptr)->upload;
++    return Integer::New(value);
++}
++
++Handle<Value> req_getcorrupt(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    unsigned long value = static_cast<TorrentRequest*> (ptr)->corrupt;
++    return Integer::New(value);
++}
++
++Handle<Value> req_getport(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    int value = static_cast<TorrentRequest*> (ptr)->port;
++    return Integer::New(value);
++}
++
++Handle<Value> req_getevent(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    TorrentRequest::Tevent value = static_cast<TorrentRequest*> (ptr)->event;
++    switch (value) {
++        case TorrentRequest::START :
++            return String::New("started");
++        case TorrentRequest::STOP :
++            return String::New("stopped");
++        case TorrentRequest::COMPLETE :
++            return String::New("completed");
++        case TorrentRequest::UPDATE :
++            return String::New("update");
++    }
++    return v8::Undefined();
++}
++
++Handle<ObjectTemplate> makeRequestTemplate() {
++    HandleScope handle_scope;
++    Handle<ObjectTemplate> result = ObjectTemplate::New();
++    result->SetInternalFieldCount(1);
++    result->SetAccessor(String::New("infohash"), req_getinfohash);
++    result->SetAccessor(String::New("agent"), req_getagent);
++    result->SetAccessor(String::New("query"), req_getquery);
++    result->SetAccessor(String::New("peerid"), req_getpeerid);
++    result->SetAccessor(String::New("left"), req_getleft);
++    result->SetAccessor(String::New("download"), req_getdownload);
++    result->SetAccessor(String::New("upload"), req_getupload);
++    result->SetAccessor(String::New("corrupt"), req_getcorrupt);
++    result->SetAccessor(String::New("port"), req_getport);
++    result->SetAccessor(String::New("ip"), req_getip);
++    result->SetAccessor(String::New("event"), req_getevent);
++    return handle_scope.Close(result);
++}
++/* -- request */
++
++/* -- peer -- */
++
++Handle<Value> peer_getstate(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    TorrentPeer::Pstate value = static_cast<TorrentPeer*> (ptr)->state;
++    switch (value) {
++        case TorrentPeer::SEED :
++            return String::New("seeder");
++        case TorrentPeer::LEECH :
++            return String::New("leecher");
++    }
++    return v8::Undefined();
++}
++Handle<Value> peer_getpeerid(Local<String> property,
++        const AccessorInfo &info) {
++
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    char *value = static_cast<TorrentPeer*> (ptr)->id;
++
++    return String::New(_bin2hex(value).c_str());
++}
++
++Handle<Value> peer_getip(Local<String> property, const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    in_addr_t value = static_cast<TorrentPeer*> (ptr)->ip;
++    char *ip = inet_ntoa(*(struct in_addr *) & value);
++    return String::New(ip);
++};
++
++Handle<Value> peer_getleft(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    unsigned long value = static_cast<TorrentPeer*> (ptr)->left;
++    return Integer::New(value);
++}
++
++Handle<Value> peer_getdownload(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    unsigned long value = static_cast<TorrentPeer*> (ptr)->download;
++    return Integer::New(value);
++}
++
++Handle<Value> peer_getupload(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    unsigned long value = static_cast<TorrentPeer*> (ptr)->upload;
++    return Integer::New(value);
++}
++
++Handle<Value> peer_getcorrupt(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    unsigned long value = static_cast<TorrentPeer*> (ptr)->corrupt;
++    return Integer::New(value);
++}
++
++Handle<Value> peer_getport(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    int value = static_cast<TorrentPeer*> (ptr)->port;
++    return Integer::New(value);
++}
++
++Handle<Value> peer_getlastseen(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    double value = static_cast<TorrentPeer*> (ptr)->lastseen;
++    return Date::New(value);
++}
++
++Handle<ObjectTemplate> makePeerTemplate() {
++    HandleScope handle_scope;
++    Handle<ObjectTemplate> result = ObjectTemplate::New();
++    result->SetInternalFieldCount(1);
++    result->SetAccessor(String::New("left"), peer_getleft);
++    result->SetAccessor(String::New("download"), peer_getdownload);
++    result->SetAccessor(String::New("upload"), peer_getupload);
++    result->SetAccessor(String::New("corrupt"), peer_getcorrupt);
++    result->SetAccessor(String::New("port"), peer_getport);
++    result->SetAccessor(String::New("ip"), peer_getip);
++    result->SetAccessor(String::New("peerid"), peer_getpeerid);
++	result->SetAccessor(String::New("state"), peer_getstate);
++    result->SetAccessor(String::New("lastseen"), peer_getlastseen);
++
++    return handle_scope.Close(result);
++}
++
++/* -- peer -- */
++
++/* -- torrent -- */
++Handle<Value> tor_getlastseen(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    double value = static_cast<TorrentFile*> (ptr)->lastseen;
++    return Date::New(value);
++}
++
++Handle<Value> tor_getinfohash(Local<String> property,
++        const AccessorInfo &info) {
++
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    char *value = static_cast<TorrentFile*> (ptr)->id;
++
++    return String::New(_bin2hex(value).c_str());
++}
++
++Handle<Value> tor_gethosts(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    unsigned long value = static_cast<TorrentFile*> (ptr)->hosts;
++    return Integer::New(value);
++}
++
++Handle<Value> tor_getseeders(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    unsigned long value = static_cast<TorrentFile*> (ptr)->seeders;
++    return Integer::New(value);
++}
++
++Handle<Value> tor_getdownloads(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    unsigned long value = static_cast<TorrentFile*> (ptr)->downloads;
++    return Integer::New(value);
++}
++
++Handle<Value> tor_getleechers(Local<String> property,
++        const AccessorInfo &info) {
++    Local<Object> self = info.Holder();
++    Local<External> wrap = Local<External>::Cast(self->GetInternalField(0));
++    void* ptr = wrap->Value();
++    unsigned long lvalue = static_cast<TorrentFile*> (ptr)->hosts;
++    unsigned long rvalue = static_cast<TorrentFile*> (ptr)->seeders;
++    return Integer::New(lvalue - rvalue);
++}
++
++Handle<ObjectTemplate> makeTorrentTemplate() {
++    HandleScope handle_scope;
++    Handle<ObjectTemplate> result = ObjectTemplate::New();
++    result->SetInternalFieldCount(1);
++    result->SetAccessor(String::New("infohash"), tor_getinfohash);
++    result->SetAccessor(String::New("hosts"), tor_gethosts);
++    result->SetAccessor(String::New("seeders"), tor_getseeders);
++    result->SetAccessor(String::New("leechers"), tor_getleechers);
++    result->SetAccessor(String::New("downloads"), tor_getdownloads);
++    result->SetAccessor(String::New("lastseen"), tor_getlastseen);
++    return handle_scope.Close(result);
++}
++
++
++
++/* -- torrent -- */
++
++/* mysql */
++Handle<Value> mysqlQuery(const v8::Arguments& args) {
++    MYSQL_RES *res;
++    MYSQL_ROW row;
++    MYSQL_FIELD *fields;
++    char *k;
++    char *v;
++    int nfields;
++    Handle<Value> retb;
++
++    if (args.Length() != 1) {
++        retb = v8::Undefined();
++        return retb;
++    }
++    v8::String::Utf8Value str(args[0]);
++    const char* cstr = *str;
++
++    if (mysql_real_query(&mysql, cstr, str.length())) {
++        return v8::Boolean::New(false);
++    }
++
++    res = mysql_use_result(&mysql);
++    if (res == NULL) {
++        return v8::Undefined();
++    }
++
++    nfields = mysql_num_fields(res);
++    fields = mysql_fetch_fields(res);
++
++    if ((row = mysql_fetch_row(res))) {
++        Handle<Object> retf = Object::New();
++        for (int i = 0; i < nfields; i++) {
++            k = fields[i].name;
++            v = row[i];
++            retf->Set(String::New(k), String::New(v));
++        }
++        retb = retf;
++    } else {
++        retb = v8::Undefined();
++    }
++    mysql_free_result(res);
++    return retb;
++}
++
++Handle<Value> mysqlEscape(const v8::Arguments& args) {
++    if (args.Length() != 1) {
++        return v8::Boolean::New(false);
++    }
++
++    v8::String::Utf8Value str(args[0]);
++    char b[str.length() * 2 + 1];
++    unsigned long ret = 0;
++    ret = mysql_real_escape_string(&mysql, b, *str, str.length());
++    return v8::String::New(b, ret);
++}
++
++Handle<Value> mysqlConnect(const v8::Arguments& args) {
++    if (args.Length() != 4) {
++        return v8::Boolean::New(false);
++    }
++
++    v8::String::Utf8Value host(args[0]);
++    v8::String::Utf8Value user(args[1]);
++    v8::String::Utf8Value pw(args[2]);
++    v8::String::Utf8Value db(args[3]);
++    //initiate mysql
++    mysql_init(&mysql);
++    if (mysql_real_connect(&mysql, *host, *user, *pw, *db, MYSQL_PORT, NULL, 0) == NULL) {
++        cout << "mysqlConnect failed: " << mysql_error(&mysql) << endl;
++        return v8::Boolean::New(false);
++    }
++    char a0 = true;
++    mysql_options(&mysql, MYSQL_OPT_RECONNECT, &a0);
++
++    return v8::Boolean::New(true);
++}
++
++/* mysql */
++
++
++Handle<ObjectTemplate> makeFuncs() {
++    HandleScope handle_scope;
++
++    Handle<ObjectTemplate> result = ObjectTemplate::New();
++    result->Set(String::New("print"), FunctionTemplate::New(Print));
++    result->Set(String::New("mysqlQuery"), FunctionTemplate::New(mysqlQuery));
++    result->Set(String::New("mysqlConnect"), FunctionTemplate::New(mysqlConnect));
++    result->Set(String::New("mysqlEscape"), FunctionTemplate::New(mysqlEscape));
++    //result->Set(String::New("bin2hex"), FunctionTemplate::New(bin2hex));
++    return handle_scope.Close(result);
++}
++
++
++
++// Reads a file into a v8 string.
++
++v8::Handle<v8::String> ReadFile(const char* name) {
++    FILE* file = fopen(name, "rb");
++    if (file == NULL) return v8::Handle<v8::String > ();
++
++    fseek(file, 0, SEEK_END);
++    int size = ftell(file);
++    rewind(file);
++
++    char* chars = new char[size + 1];
++    chars[size] = '\0';
++    for (int i = 0; i < size;) {
++        int read = fread(&chars[i], 1, size - i, file);
++        i += read;
++    }
++    fclose(file);
++    v8::Handle<v8::String> result = v8::String::New(chars, size);
++    delete[] chars;
++    return result;
++}
++
+--- /dev/null
++++ lbtt-1.0/v8funcs.h
+@@ -0,0 +1,26 @@
++/* 
++ * File:   v8funcs.h
++ * Author: lfontes
++ *
++ * Created on September 6, 2009, 5:14 PM
++ */
++
++#ifndef _V8FUNCS_H
++#define	_V8FUNCS_H
++#include <v8.h>
++
++
++#include <iostream>
++#include <string>
++
++
++using namespace v8;
++using namespace std;
++
++Handle<ObjectTemplate> makeFuncs();
++Handle<ObjectTemplate> makeRequestTemplate();
++Handle<ObjectTemplate> makePeerTemplate();
++Handle<ObjectTemplate> makeTorrentTemplate();
++Handle<String> ReadFile(const char* name);
++#endif	/* _V8FUNCS_H */
++
+--- /dev/null
++++ lbtt-1.0/worker.cpp
+@@ -0,0 +1,243 @@
++#include <queue>
++#include <iostream>
++#include <sstream>
++#include "worker.h"
++#include "scoped_lock.h"
++
++using namespace std;
++
++Worker::Worker(TorrentTracker& t) :
++timeout(30),
++tracker(t) {
++    pthread_mutex_init(&io_mutex, NULL);
++    asyncw.set(loop);
++    asyncw.set<Worker, &Worker::receiveClient > (this);
++    asyncw.start();
++}
++
++void Worker::newClient(int fd) {
++    scoped_lock lock(io_mutex);
++    clients.push(fd);
++    asyncw.send();
++}
++
++void Worker::receiveClient(ev::async& w, int revents) {
++    scoped_lock lock(io_mutex);
++    WorkerClient *client;
++    while (clients.size() > 0) {
++        int fd = clients.front();
++        clients.pop();
++        client = new WorkerClient(fd, timeout, *this);
++    }
++}
++
++void Worker::sendit(int fd) {
++    string tosend = output.str();
++    send(fd, tosend.c_str(), tosend.length(),0);
++}
++
++void Worker::sendError(int fd, char *msg) {
++    output << "HTTP/1.0 500 HTTP Error\r\n\r\n" << msg << endl;
++    string tosend = output.str();
++    sendit(fd);
++}
++
++bool Worker::prepare(TorrentRequest& req, char* path, bool validate) {
++    //info_hash is REQUIRED
++    char *p = NULL;
++    char *argument = path;
++    int hits = 0;
++    bool ret = false;
++    //cout << "query " << path << endl;
++    strsep(&argument, "?");
++    p = argument;
++    if (p == NULL || *p == '\0')return false;
++    while (p != NULL && *p != '\0') {
++        char *key, *value;
++        argument = strsep(&p, "&");
++        value = argument;
++        key = strsep(&value, "=");
++        if (value == NULL) return false;
++
++        if (strcmp("info_hash", key) == 0) {
++            if (decode_q(value, req.torrent) != 20) return false;
++            ret = true;
++            hits++;
++        } else if (strcmp("peer_id", key) == 0) {
++            if (decode_q(value, req.peerid) != 20) return false;
++            hits++;
++        } else if (strcmp("left", key) == 0) {
++            req.left = atol(value);
++            hits++;
++        } else if (strcmp("corrupt", key) == 0) {
++            req.corrupt = atol(value);
++            hits++;
++        } else if (strcmp("downloaded", key) == 0) {
++            req.download = atol(value);
++            hits++;
++        } else if (strcmp("uploaded", key) == 0) {
++            req.upload = atol(value);
++            hits++;
++        } else if (strcmp("event", key) == 0) {
++            if (strcmp(value, "started") == 0) {
++                req.event = req.START;
++            } else if (strcmp(value, "stopped") == 0) {
++                req.event = req.STOP;
++            } else if (strcmp(value, "completed") == 0) {
++                req.event = req.COMPLETE;
++            }
++            hits++;
++        } else if (strcmp("port", key) == 0) {
++            req.port = atoi(value);
++            hits++;
++        } else if (strcmp("numwant", key) == 0) {
++            req.numwant = atoi(value);
++            if (req.numwant > 30 || req.numwant < 1)
++                req.numwant = 30;
++            hits++;
++        } else if (strcmp("compact", key) == 0) {
++            req.compact = true;
++        } else if (strcmp("ip", key) == 0) {
++            req.ip = inet_addr(value);
++            if (req.ip == INADDR_NONE)return false;
++        }
++
++    }
++    if(validate && hits < 7)
++        return false;
++
++    return ret;
++
++}
++
++void Worker::process(int fd) {
++    nread = recv(fd, inB, sizeof (inB), 0);
++    if (nread == 0) return;
++    inB[nread - 1] = '\0';
++    output.clear();
++    output.str("");
++    char *path = NULL;
++    char *p = NULL;
++    if (strncmp("GET ", inB, 4) != 0) {
++        sendError(fd,"invalid request");
++        return;
++    }
++    path = &inB[4];
++    p = strchr(path, ' ');
++    if (p == NULL || memcmp(p, " HTTP", 5) != 0) {
++        sendError(fd,"invalid request");
++        return;
++    }
++    *p = '\0';
++    p++;
++
++
++    output << "HTTP/1.0 200 HTTP OK\r\nContent-Type: text/html\r\n\r\n";
++    //doesnt require infohash
++    //status
++    if (strncmp("/lbtt/status", path, 12) == 0) {
++        tracker.status(output);
++        sendit(fd);
++        return;
++    }
++
++    TorrentRequest req(path);
++	if(strncmp("/lbtt/dynamic",path,13) == 0){
++		tracker.dynamic(req,output);
++		sendit(fd);
++		return;
++	}
++
++
++    //look for User-Agent
++    char *ua = NULL;
++    ua = strstr(p,"\r\nUser-Agent: ");
++    if(ua != NULL){
++      ua += 14; // jump User-Agent: 
++      char *uaend = strchr(ua,'\r');
++      if(uaend != NULL){
++	*uaend = '\0';
++        req.useragent = ua;
++     }
++
++   }
++
++
++    struct sockaddr_in mysock;
++    socklen_t namelen;
++    namelen = sizeof (struct sockaddr_in);
++    getpeername(fd, (struct sockaddr *) & mysock, &namelen);
++    req.ip = mysock.sin_addr.s_addr;
++
++    
++   
++    //requires infohash
++    // announce , scrape , torrentinfo
++
++    
++    
++    if ((strncmp("/announce?", path, 8) == 0) && (prepare(req, path, false) == true)) {
++        tracker.announce(req, output);
++    } else if ((strncmp("/scrape?", path, 8) == 0) && (prepare(req, path, false) == true)) {
++        tracker.scrape(req, output);
++    }else if ((strncmp("/lbtt/info?", path, 8) == 0) && (prepare(req, path, false) == true)) {
++        tracker.info(req, output);    
++    } else {
++        output << "how did you get here?" << endl;
++    }
++    
++    sendit(fd);
++}
++
++int Worker::decode_q(const char *uri, char *ret) {
++    char c;
++    int i, j, in_query = 0;
++
++    for (i = j = 0; uri[i] != '\0' && uri[i] != '&'; i++) {
++        c = uri[i];
++        if (j >= 20) return 99; //parser error
++        if (c == '?') {
++            in_query = 1;
++        } else if (c == '+' && in_query) {
++            c = ' ';
++        } else if (c == '%' && isxdigit(uri[i + 1]) &&
++                isxdigit(uri[i + 2])) {
++            char tmp[] = {uri[i + 1], uri[i + 2], '\0'};
++            c = (char) strtol(tmp, NULL, 16);
++            i += 2;
++        }
++
++        ret[j++] = c;
++    }
++
++    return j;
++}
++
++/* -------------------------- */
++WorkerClient::WorkerClient(int f, int timeout, Worker & w) :
++worker(w) {
++    iow.set(w.loop);
++    iow.set<WorkerClient, &WorkerClient::receive > (this);
++    iow.start(f, ev::READ);
++    timerw.set(w.loop);
++    timerw.set<WorkerClient, &WorkerClient::timeout > (this);
++    timerw.start(timeout, 0.);
++
++}
++
++void WorkerClient::timeout(ev::timer& t, int revents) {
++    close(iow.fd);
++    timerw.stop();
++    iow.stop();
++    cout << "Client timed out" << endl;
++    delete this;
++}
++
++void WorkerClient::receive(ev::io& iw, int revents) {
++    worker.process(iow.fd);
++    timerw.stop();
++    iow.stop();
++    close(iow.fd);
++    delete this;
++}
++
+--- /dev/null
++++ lbtt-1.0/worker.h
+@@ -0,0 +1,60 @@
++/* 
++ * File:   workers.h
++ * Author: lfontes
++ *
++ * Created on September 4, 2009, 5:12 PM
++ */
++
++#ifndef _WORKERS_H
++#define	_WORKERS_H
++#include "tracker.h"
++#include <pthread.h>
++#include <queue>
++#include <ev++.h>
++#include <iostream>
++#include <sys/socket.h>
++#include <netinet/in.h>
++#include <arpa/inet.h>
++#include <sstream>
++
++using namespace std;
++
++class Worker {
++public:
++    void newClient(int fd);
++
++    void operator()() {
++        loop.loop();
++    }
++    Worker(TorrentTracker &t);
++    void process(int fd);
++    ev::dynamic_loop loop; //our main loop
++    int timeout;
++private:
++    int decode_q(const char *uri, char *ret);
++    void sendError(int fd);
++    void sendit(int fd);
++    void sendError(int fd, char *msg);
++    bool prepare(TorrentRequest &req, char *path, bool validate);
++    char inB[4096];
++    int nread;
++    ev::async asyncw;
++    TorrentTracker &tracker;
++    void receiveClient(ev::async &w, int revents);
++    pthread_mutex_t io_mutex;
++    queue<int> clients;
++    stringstream output;
++};
++
++struct WorkerClient {
++    WorkerClient(int f, int timeout, Worker & w);
++    ev::io iow;
++    ev::timer timerw;
++    Worker &worker;
++    void timeout(ev::timer &t, int revents);
++    void receive(ev::io &iw, int revents);
++};
++
++
++#endif	/* _WORKERS_H */
++
+--- /dev/null
++++ lbtt-1.0/Makefile
+@@ -0,0 +1,33 @@
++CC=g++
++OBJS=main.o tracker.o acceptor.o worker.o v8funcs.o
++CFLAGS=-Wall -DEV_STANDALONE=1 -DEV_MULTIPLICITY=1 `mysql_config --cflags`
++LDFLAGS=-lpthread  -lv8 -lev `mysql_config --libs` 
++
++
++UNAME := $(shell uname)
++ifeq ($(UNAME), FreeBSD)
++CFLAGS+= -I/usr/local/include
++LDFLAGS+= -lexecinfo -L/usr/local/lib
++endif
++
++ifeq ($(DEBUG), 1)
++CFLAGS += -ggdb -DDEBUG
++endif
++
++
++all: lbtt
++
++lbtt: $(OBJS)
++	$(CC) -o $@ $(OBJS) $(LDFLAGS)
++
++.cpp.o:
++	$(CC) $(CFLAGS) -c -O $*.cpp
++
++install:
++	install -d $(DESTDIR)/usr/share/lbtt/
++	install -d $(DESTDIR)/usr/sbin/
++	install -v -m 755 lbtt $(DESTDIR)/usr/sbin/
++	install -v -m 644 lbtt.js $(DESTDIR)/usr/share/lbtt/
++
++clean:
++	rm -f *.o lbtt
+--- /dev/null
++++ lbtt-1.0/main.cpp
+@@ -0,0 +1,121 @@
++#include "tracker.h"
++#include "acceptor.h"
++#include "thread.h"
++#include "worker.h"
++#include <v8.h>
++#include <iostream>
++#include <ev.h>
++#include <signal.h>
++#include <vector>
++#include <getopt.h>
++using namespace std;
++using namespace v8;
++
++vector<Worker *> workers;
++vector<thread<Worker> *> tworkers;
++vector<Worker *>::iterator workerit;
++void newClient(int cfd) {
++    Worker *w = *workerit;
++    w->newClient(cfd);
++    workerit++;
++    if(workerit == workers.end())
++        workerit = workers.begin();
++}
++bool running;
++
++void stopme(int s){
++    running = false;
++}
++
++
++int printHelp(){
++        cout << "-h\thelp" << endl;
++        cout << "-t\tthreads [def. 5]" << endl;
++        cout << "-p\tport [def. 8080]" << endl;
++        cout << "-b\tip [def. 127.0.0.1]" << endl;
++        cout << "-s\tjavascript file [def. /usr/share/lbtt/lbtt.js]" << endl;
++        cout << "-i\tannounce interval [def. 900]" << endl;
++        cout << "-e\texpire interval [def. 1800]" << endl;
++        return 0;
++}
++
++
++int main(int argc, char **argv) {
++
++    int nthreads = 5;
++    int socket_timeout = 5;
++    int port = 8080;
++	int interval = 900;
++	int expire = (interval * 2);
++	string script("/usr/share/lbtt/lbtt.js");
++	string bindip("127.0.0.1");
++	char opt;
++
++
++	     
++
++        while((opt = getopt(argc, argv, "i:e:ht:p:b:s:")) != -1) {
++                switch(opt){
++                case 'i':
++                        interval = atoi(optarg);
++                        break;
++                case 'e':
++                        expire = atoi(optarg);
++                        break;
++                case 'h':
++                        return printHelp();
++                case 't':
++                        nthreads = atoi(optarg);
++                        break;
++                case 'p':
++                        port = atoi(optarg);
++                        break;
++                case 'b':
++                        bindip = optarg;
++                        break;
++                case 's':
++                        script = optarg;
++                        break;
++                }
++        }
++      v8::V8::SetFlagsFromCommandLine(&argc, argv, true);
++
++    TorrentTracker tracker(script);
++    tracker.interval = interval;
++    tracker.expireTimeout = expire * 1000;
++
++    //bbye stdin
++    close(0);
++
++    Acceptor binder(bindip.c_str(), port);
++    binder.setCallback(newClient);
++
++    thread<Acceptor> binderthread(binder);
++Worker *w;
++    for (int i = 0; i < nthreads; i++) {
++        w = new Worker(tracker);
++        w->timeout = socket_timeout;
++        thread<Worker> *twork = new thread<Worker>(*w);
++        workers.push_back(w);
++    }
++
++    workerit = workers.begin();
++
++    signal(SIGPIPE, SIG_IGN);
++    signal(SIGINT, stopme);
++    running = true;
++    cout << "started" << endl;
++	int sleepcount = 0;
++    while (running) {
++	    if(sleepcount >= 30){
++        tracker.cleanup();
++		sleepcount = 0;
++		}
++        sleep(1);
++		sleepcount++;
++    }
++
++    binder.stop();
++
++    return 0;
++}

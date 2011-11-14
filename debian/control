@@ -1,0 +1,15 @@
+Source: lbtt
+Section: unknown
+Priority: extra
+Maintainer: Cassiano Aquino <cassianoaquino@me.com>
+Build-Depends: debhelper (>= 7.0.50~)
+Standards-Version: 3.8.4
+Homepage: https://github.com/lxfontes/lbtt
+#Vcs-Git: git://git.debian.org/collab-maint/lbtt.git
+#Vcs-Browser: http://git.debian.org/?p=collab-maint/lbtt.git;a=summary
+
+Package: lbtt
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Bittorrent Tracker using Google's v8 engine
+ Bittorrent Tracker using Google's v8 engine

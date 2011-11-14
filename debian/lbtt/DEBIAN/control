@@ -1,0 +1,11 @@
+Package: lbtt
+Version: 1.0-1
+Architecture: amd64
+Maintainer: Cassiano Aquino <cassianoaquino@me.com>
+Installed-Size: 124
+Depends: libc6 (>= 2.2.5), libev3 (>= 3.1), libgcc1 (>= 1:4.1.1), libmysqlclient16 (>= 5.1.21-1), libstdc++6 (>= 4.4.0), libv8-2.2.24
+Section: unknown
+Priority: extra
+Homepage: https://github.com/lxfontes/lbtt
+Description: Bittorrent Tracker using Google's v8 engine
+ Bittorrent Tracker using Google's v8 engine

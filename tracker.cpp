@@ -24,7 +24,7 @@ bool TorrentTracker::cleanup() {
 
 
     double now = (static_cast<double> (tv.tv_sec) * 1000) + (static_cast<double> (tv.tv_usec) / 1000);
-	
+
     map<const char *, TorrentFile *>::iterator iterTor = torrents.begin();
     while (iterTor != torrents.end()) {
         TorrentFile *tor = iterTor->second;
@@ -43,7 +43,7 @@ bool TorrentTracker::cleanup() {
         //run newRequest
         Handle<Value> result = expirePeer->Call(context->Global(), argc, argv);
 		}
-			
+
                 removePeer(tor, pee);
                 iterPeers = tor->peers.begin();
             } else {
@@ -122,7 +122,7 @@ hosts(0), downloads(0), seeders(0), interval(1800), expireTimeout(2000) {
         Handle<Function> hfun = Handle<Function>::Cast(process_val);
         expireTorrent = Persistent<Function>::New(hfun);
     }
-	
+
 
 	process_name = String::New("httpRequest");
     process_val = context->Global()->Get(process_name);
@@ -131,7 +131,7 @@ hosts(0), downloads(0), seeders(0), interval(1800), expireTimeout(2000) {
         Handle<Function> hfun = Handle<Function>::Cast(process_val);
         dynamicRequest = Persistent<Function>::New(hfun);
     }
-	
+
 }
 
 void TorrentTracker::removeTorrent(TorrentFile *tor) {

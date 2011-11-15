@@ -1,12 +1,15 @@
+Lightweight bittorrent tracker
+
+Uses v8 as the scripting engine and libev for the IO layer.
+
+The debian package handle all the dependencies.
+
+To build manually install all the dependencies and use the Makefile contained in the project.
+
 required:
-v8 javascript engine ( http://code.google.com/p/v8/ ) ** shipped
-libev IO layer ( http://software.schmorp.de/pkg/libev.html ) ** shipped
+v8 javascript engine ( http://code.google.com/p/v8/ )
+libev IO layer ( http://software.schmorp.de/pkg/libev.html )
 mysql libraries ( http://www.mysql.com ) -> MAKE SURE mysql_config is in your path
-scons + python ( required to compile v8 )
-
-just run:
-cd src && make
-
 
 torrent urls
 http://host:8080/announce
@@ -19,3 +22,6 @@ http://host:8080/lbtt/status
 http://host:8080/lbtt/info?info_hash=(20bytes infohash, like scrape)
 { "complete": 0,"downloaded": 0,"incomplete": 1 }
 
+
+code by Lucas Fontes
+https://github.com/lxfontes
